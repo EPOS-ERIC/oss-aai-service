@@ -48,7 +48,7 @@ jobs:
           languages: go
 
       - name: Build for CodeQL
-        run: make build-go
+        run: make build
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
