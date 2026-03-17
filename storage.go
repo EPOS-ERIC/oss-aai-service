@@ -23,8 +23,8 @@ const (
 
 type userRecord struct {
 	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Surname      string    `json:"surname"`
+	FirstName    string    `json:"firstName"`
+	LastName     string    `json:"lastName"`
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"password_hash"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -79,8 +79,8 @@ func (s *localStore) createUser(name, surname, email, passwordHash string) (user
 
 	user := userRecord{
 		ID:           newID(),
-		Name:         name,
-		Surname:      surname,
+		FirstName:    name,
+		LastName:     surname,
 		Email:        strings.ToLower(email),
 		PasswordHash: passwordHash,
 		CreatedAt:    time.Now().UTC(),
@@ -89,7 +89,7 @@ func (s *localStore) createUser(name, surname, email, passwordHash string) (user
 	_, err := s.db.Exec(`
 		INSERT INTO users(id, name, surname, email, password_hash, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)
-	`, user.ID, user.Name, user.Surname, user.Email, user.PasswordHash, user.CreatedAt.Unix())
+	`, user.ID, user.FirstName, user.LastName, user.Email, user.PasswordHash, user.CreatedAt.Unix())
 	if err != nil {
 		return userRecord{}, err
 	}
@@ -111,7 +111,7 @@ func (s *localStore) getUserByEmailLocked(email string) (userRecord, bool) {
 
 	var user userRecord
 	var createdAt int64
-	if err := row.Scan(&user.ID, &user.Name, &user.Surname, &user.Email, &user.PasswordHash, &createdAt); err != nil {
+	if err := row.Scan(&user.ID, &user.FirstName, &user.LastName, &user.Email, &user.PasswordHash, &createdAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return userRecord{}, false
 		}
@@ -133,7 +133,7 @@ func (s *localStore) getUserByID(id string) (userRecord, bool) {
 
 	var user userRecord
 	var createdAt int64
-	if err := row.Scan(&user.ID, &user.Name, &user.Surname, &user.Email, &user.PasswordHash, &createdAt); err != nil {
+	if err := row.Scan(&user.ID, &user.FirstName, &user.LastName, &user.Email, &user.PasswordHash, &createdAt); err != nil {
 		return userRecord{}, false
 	}
 

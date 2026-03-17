@@ -302,8 +302,8 @@ func (a *app) oauthValidateHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"active":            true,
 		"eduPersonUniqueId": user.ID,
-		"name":              user.Name,
-		"surname":           user.Surname,
+		"firstname":         user.FirstName,
+		"lastName":          user.LastName,
 		"email":             user.Email,
 		"exp":               session.ExpiresAt.Unix(),
 	})
@@ -324,10 +324,10 @@ func (a *app) apiMeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":      user.ID,
-		"name":    user.Name,
-		"surname": user.Surname,
-		"email":   user.Email,
+		"id":        user.ID,
+		"firstName": user.FirstName,
+		"lastName":  user.LastName,
+		"email":     user.Email,
 	})
 }
 
