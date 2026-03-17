@@ -26,7 +26,7 @@ on:
 env:
   VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'latest' }}
   REGISTRY: ghcr.io
-  GO_VERSION: "1.26.0"
+  GO_VERSION: "1.26.1"
 
 jobs:
   security-scan:
