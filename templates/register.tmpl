@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenSource Access Portal - Register</title>
+  <style>
+    :root {
+      --brand-deep: #0d4f68;
+      --brand-main: #1f8a70;
+      --brand-soft: #e8f4ef;
+      --brand-accent: #35a873;
+      --text-main: #10363f;
+      --text-soft: #4f6b72;
+      --danger: #b4233d;
+      --panel: #ffffff;
+      --shadow: 0 20px 45px rgba(16, 54, 63, 0.14);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+      color: var(--text-main);
+      background:
+        radial-gradient(circle at 12% 15%, rgba(53, 168, 115, 0.20), transparent 42%),
+        radial-gradient(circle at 88% 12%, rgba(13, 79, 104, 0.22), transparent 48%),
+        linear-gradient(145deg, #f7fcfa 0%, #e7f1f5 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .shell {
+      width: 100%;
+      max-width: 560px;
+      background: var(--panel);
+      border: 1px solid rgba(13, 79, 104, 0.12);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      padding: 26px;
+    }
+    .brand { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; }
+    .brand img { width: 54px; height: 54px; object-fit: contain; }
+    .brand .name { margin: 0; font-size: 1.25rem; font-weight: 700; letter-spacing: 0.01em; }
+    .brand .tag { margin: 2px 0 0; color: var(--text-soft); font-size: 0.9rem; }
+    h1 { margin: 10px 0 8px; font-size: 1.45rem; }
+    .intro { margin: 0 0 12px; color: var(--text-soft); }
+    label { display: block; margin-top: 0.75rem; font-weight: 600; }
+    input {
+      margin-top: 0.42rem;
+      width: 100%;
+      padding: 0.62rem 0.74rem;
+      border: 1px solid rgba(13, 79, 104, 0.24);
+      border-radius: 10px;
+      background: #fff;
+      color: var(--text-main);
+    }
+    input:focus { outline: 2px solid rgba(31, 138, 112, 0.25); border-color: var(--brand-main); }
+    button {
+      margin-top: 1rem;
+      width: 100%;
+      padding: 0.72rem 0.9rem;
+      border: 0;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--brand-main), var(--brand-deep));
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:hover { filter: brightness(1.04); }
+    .error {
+      color: var(--danger);
+      background: #fdecef;
+      border: 1px solid #f6c4ce;
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin: 10px 0;
+    }
+    .foot { margin-top: 14px; color: var(--text-soft); }
+    a { color: var(--brand-deep); font-weight: 600; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="brand">
+      <img src="https://epos-eric.github.io/opensource-docs/img/logo-opensource-1-light.png" alt="Open Source logo">
+      <div>
+        <p class="name">OpenSource Access Portal</p>
+        <p class="tag">Identity and token management service</p>
+      </div>
+    </div>
+
+    <h1>Create account</h1>
+    <p class="intro">Register a user profile to access protected resources and token tools.</p>
+    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    <form method="post" action="/register">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <label>Name
+        <input type="text" name="name" required>
+      </label>
+      <label>Surname
+        <input type="text" name="surname" required>
+      </label>
+      <label>Email
+        <input type="email" name="email" required>
+      </label>
+      <label>Password (min 8 chars)
+        <input type="password" name="password" minlength="8" required>
+      </label>
+      <button type="submit">Register</button>
+    </form>
+    <p class="foot">Already registered? <a href="/login">Sign in</a></p>
+  </main>
+</body>
+</html>
