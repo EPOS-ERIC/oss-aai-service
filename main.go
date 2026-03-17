@@ -52,6 +52,16 @@ func main() {
 	mux.HandleFunc("/logout", a.logoutHandler)
 	mux.HandleFunc("/oauth/token", a.oauthTokenHandler)
 	mux.HandleFunc("/oauth/validate", a.oauthValidateHandler)
+	mux.HandleFunc("/oauth/revoke", a.oauthRevokeHandler)
+	mux.HandleFunc("/oauth/userinfo", a.oauthUserInfoHandler)
+	mux.HandleFunc("/oauth2/.well-known/openid-configuration", a.oidcDiscoveryHandler)
+	mux.HandleFunc("/.well-known/openid-configuration", a.oidcDiscoveryHandler)
+	mux.HandleFunc("/oauth2/token", a.oauthTokenHandler)
+	mux.HandleFunc("/oauth2/introspect", a.oauthIntrospectHandler)
+	mux.HandleFunc("/oauth2/revoke", a.oauthRevokeHandler)
+	mux.HandleFunc("/oauth2/userinfo", a.oauthUserInfoHandler)
+	mux.HandleFunc("/oauth2/jwk", a.oauthJWKSHandler)
+	mux.HandleFunc("/oauth2-as/oauth2-authz", a.oauthAuthorizationHandler)
 	mux.HandleFunc("/api/me", a.apiMeHandler)
 
 	server := &http.Server{
@@ -282,9 +292,17 @@ func (a *app) issueRefreshGrant(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) oauthValidateHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	token := bearerToken(r)
 	if token == "" {
 		token = strings.TrimSpace(r.URL.Query().Get("token"))
+	}
+	if token == "" {
+		token = strings.TrimSpace(r.FormValue("token"))
 	}
 
 	session, ok := a.store.getSessionByToken(token)
@@ -306,6 +324,124 @@ func (a *app) oauthValidateHandler(w http.ResponseWriter, r *http.Request) {
 		"lastName":          user.LastName,
 		"email":             user.Email,
 		"exp":               session.ExpiresAt.Unix(),
+	})
+}
+
+func (a *app) oauthIntrospectHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "invalid form payload")
+		return
+	}
+
+	clientID, clientSecret, ok := parseClientCredentials(r)
+	if !ok || !a.store.validateOAuthClient(clientID, clientSecret) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="oauth2"`)
+		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "client authentication failed")
+		return
+	}
+
+	a.oauthValidateHandler(w, r)
+}
+
+func (a *app) oauthRevokeHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "invalid form payload")
+		return
+	}
+
+	clientID, clientSecret, ok := parseClientCredentials(r)
+	if !ok || !a.store.validateOAuthClient(clientID, clientSecret) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="oauth2"`)
+		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "client authentication failed")
+		return
+	}
+
+	token := strings.TrimSpace(r.FormValue("token"))
+	if token != "" {
+		a.store.deleteSession(token)
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (a *app) oauthUserInfoHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	token := bearerToken(r)
+	session, ok := a.store.getSessionByToken(token)
+	if !ok || session.Kind != sessionKindOAuthAccess || session.ExpiresAt.Before(time.Now().UTC()) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_token"})
+		return
+	}
+
+	user, ok := a.store.getUserByID(session.UserID)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_token"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"sub":               user.ID,
+		"eduPersonUniqueId": user.ID,
+		"name":              strings.TrimSpace(user.FirstName + " " + user.LastName),
+		"given_name":        user.FirstName,
+		"family_name":       user.LastName,
+		"email":             user.Email,
+		"email_verified":    true,
+	})
+}
+
+func (a *app) oauthJWKSHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"keys": []any{}})
+}
+
+func (a *app) oauthAuthorizationHandler(w http.ResponseWriter, r *http.Request) {
+	writeOAuthError(w, http.StatusBadRequest, "unsupported_response_type", "authorization code flow is not enabled in this service")
+}
+
+func (a *app) oidcDiscoveryHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	issuer := issuerURL(r)
+	origin := originURL(r)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"issuer":                                issuer,
+		"authorization_endpoint":                origin + "/oauth2-as/oauth2-authz",
+		"token_endpoint":                        issuer + "/token",
+		"userinfo_endpoint":                     issuer + "/userinfo",
+		"introspection_endpoint":                issuer + "/introspect",
+		"revocation_endpoint":                   issuer + "/revoke",
+		"jwks_uri":                              issuer + "/jwk",
+		"scopes_supported":                      []string{"openid", "profile", "email"},
+		"response_types_supported":              []string{"token"},
+		"response_modes_supported":              []string{"query", "fragment"},
+		"grant_types_supported":                 []string{"password", "refresh_token"},
+		"code_challenge_methods_supported":      []string{"plain", "S256"},
+		"request_uri_parameter_supported":       false,
+		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
+		"subject_types_supported":               []string{"public"},
+		"id_token_signing_alg_values_supported": []string{"none"},
 	})
 }
 
@@ -460,4 +596,30 @@ func secureCookiesEnabled(r *http.Request) bool {
 		return true
 	}
 	return r.TLS != nil
+}
+
+func issuerURL(r *http.Request) string {
+	if env := strings.TrimSpace(os.Getenv("OIDC_ISSUER")); env != "" {
+		return strings.TrimRight(env, "/")
+	}
+
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); forwarded != "" {
+		scheme = strings.ToLower(forwarded)
+	}
+
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		host = "localhost:8080"
+	}
+
+	return scheme + "://" + host + "/oauth2"
+}
+
+func originURL(r *http.Request) string {
+	issuer := issuerURL(r)
+	return strings.TrimSuffix(issuer, "/oauth2")
 }

@@ -3,7 +3,7 @@
 Small Go application that provides:
 - User registration and login (HTML templates)
 - Session-based web authentication
-- OAuth2-style token issuance and validation
+- OAuth2/OIDC-style token issuance, introspection and user info
 - Local persistence with SQLite (`data/auth.db`)
 
 ## Quick start
@@ -45,6 +45,7 @@ The initial admin user can be updated or deleted after first login and will not 
 
 - `INITIAL_ADMIN_PASSWORD` - password used for the seeded admin user (only on first initialization)
 - `APP_SECURE_COOKIES=true` - forces the `Secure` cookie flag (recommended behind HTTPS)
+- `OIDC_ISSUER` - overrides issuer URL in OIDC discovery metadata
 
 ## Main endpoints
 
@@ -56,6 +57,27 @@ The initial admin user can be updated or deleted after first login and will not 
   - `POST /oauth/token`
   - `GET /oauth/validate`
   - `GET /api/me`
+  - `POST /oauth2/token`
+  - `POST /oauth2/introspect`
+  - `POST /oauth2/revoke`
+  - `GET /oauth2/userinfo`
+  - `GET /oauth2/jwk`
+  - `GET /oauth2/.well-known/openid-configuration`
+  - `GET /.well-known/openid-configuration`
+
+## OIDC discovery example
+
+```bash
+curl http://localhost:8080/oauth2/.well-known/openid-configuration
+```
+
+The validation/introspection response includes:
+- `active`
+- `eduPersonUniqueId`
+- `firstname`
+- `lastName`
+- `email`
+- `exp`
 
 ## Token example
 
