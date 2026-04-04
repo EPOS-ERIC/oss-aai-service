@@ -12,6 +12,65 @@ import (
 	"testing"
 )
 
+func TestHealthHandlerReturnsOKWhenStoreIsAvailable(t *testing.T) {
+	a := newTestApp(t)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:35000/healthz", nil)
+	rr := httptest.NewRecorder()
+
+	a.healthHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d", rr.Code)
+	}
+
+	var payload map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal health response: %v", err)
+	}
+	if got := payload["status"]; got != "ok" {
+		t.Fatalf("unexpected status payload: %q", got)
+	}
+}
+
+func TestHealthHandlerReturnsServiceUnavailableWhenStoreIsClosed(t *testing.T) {
+	a := newTestApp(t)
+	if err := a.store.db.Close(); err != nil {
+		t.Fatalf("close store db: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:35000/healthz", nil)
+	rr := httptest.NewRecorder()
+
+	a.healthHandler(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unexpected status: got %d", rr.Code)
+	}
+
+	var payload map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal health response: %v", err)
+	}
+	if got := payload["status"]; got != "error" {
+		t.Fatalf("unexpected status payload: %q", got)
+	}
+	if got := payload["error"]; got != "database unavailable" {
+		t.Fatalf("unexpected error payload: %q", got)
+	}
+}
+
+func TestHealthHandlerRejectsNonGETMethods(t *testing.T) {
+	a := newTestApp(t)
+	req := httptest.NewRequest(http.MethodPost, "http://localhost:35000/healthz", nil)
+	rr := httptest.NewRecorder()
+
+	a.healthHandler(rr, req)
+
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("unexpected status: got %d", rr.Code)
+	}
+}
+
 func TestOIDCDiscoveryUsesIssuerAuthorizationEndpoint(t *testing.T) {
 	a := newTestApp(t)
 	req := httptest.NewRequest(http.MethodGet, "http://localhost:35000/oauth2/.well-known/openid-configuration", nil)

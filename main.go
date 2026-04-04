@@ -55,6 +55,7 @@ func main() {
 
 	a := &app{store: store, templates: tmpl, oidc: oidcSigner}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", a.healthHandler)
 	mux.HandleFunc("/", a.homeHandler)
 	mux.HandleFunc("/register", a.registerHandler)
 	mux.HandleFunc("/login", a.loginHandler)
@@ -84,6 +85,23 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("listen: %v", err)
 	}
+}
+
+func (a *app) healthHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if err := a.store.ping(r.Context()); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status": "error",
+			"error":  "database unavailable",
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (a *app) homeHandler(w http.ResponseWriter, r *http.Request) {

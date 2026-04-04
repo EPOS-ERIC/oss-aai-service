@@ -62,6 +62,8 @@ If none of the `INITIAL_ADMIN_*` variables are set before the first startup, the
 
 ## Main endpoints
 
+- Health:
+  - `GET /healthz`
 - Web UI:
   - `GET /register`
   - `GET /login`
@@ -79,6 +81,12 @@ If none of the `INITIAL_ADMIN_*` variables are set before the first startup, the
   - `GET /oauth2/.well-known/openid-configuration`
   - `GET /.well-known/openid-configuration`
   - `GET /oauth2-as/oauth2-authz` (legacy auth alias)
+
+## Health check example
+
+```bash
+curl http://localhost:8080/healthz
+```
 
 ## OIDC discovery example
 

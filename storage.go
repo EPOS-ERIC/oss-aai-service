@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
@@ -89,6 +90,10 @@ func newLocalStore(path string) (*localStore, error) {
 	}
 
 	return store, nil
+}
+
+func (s *localStore) ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
 }
 
 func (s *localStore) createUser(name, surname, email, passwordHash string) (userRecord, error) {
