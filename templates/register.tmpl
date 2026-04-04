@@ -97,6 +97,7 @@
     {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
     <form method="post" action="/register">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <input type="hidden" name="continue" value="{{.Continue}}">
       <label>Name
         <input type="text" name="name" required>
       </label>
@@ -111,7 +112,7 @@
       </label>
       <button type="submit">Register</button>
     </form>
-    <p class="foot">Already registered? <a href="/login">Sign in</a></p>
+    <p class="foot">Already registered? <a href="/login{{if .Continue}}?continue={{urlquery .Continue}}{{end}}">Sign in</a></p>
   </main>
 </body>
 </html>

@@ -8,8 +8,10 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -25,12 +27,14 @@ const (
 type app struct {
 	store     *localStore
 	templates *template.Template
+	oidc      *oidcSigner
 }
 
 type viewData struct {
 	Error     string
 	User      *userRecord
 	CSRFToken string
+	Continue  string
 }
 
 func main() {
@@ -44,7 +48,12 @@ func main() {
 		log.Fatalf("parse templates: %v", err)
 	}
 
-	a := &app{store: store, templates: tmpl}
+	oidcSigner, err := newOIDCSigner(store)
+	if err != nil {
+		log.Fatalf("init OIDC signer: %v", err)
+	}
+
+	a := &app{store: store, templates: tmpl, oidc: oidcSigner}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", a.homeHandler)
 	mux.HandleFunc("/register", a.registerHandler)
@@ -61,12 +70,13 @@ func main() {
 	mux.HandleFunc("/oauth2/revoke", a.oauthRevokeHandler)
 	mux.HandleFunc("/oauth2/userinfo", a.oauthUserInfoHandler)
 	mux.HandleFunc("/oauth2/jwk", a.oauthJWKSHandler)
+	mux.HandleFunc("/oauth2/authorize", a.oauthAuthorizationHandler)
 	mux.HandleFunc("/oauth2-as/oauth2-authz", a.oauthAuthorizationHandler)
 	mux.HandleFunc("/api/me", a.apiMeHandler)
 
 	server := &http.Server{
 		Addr:              ":8080",
-		Handler:           loggingMiddleware(mux),
+		Handler:           loggingMiddleware(corsMiddleware(mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -94,15 +104,17 @@ func (a *app) homeHandler(w http.ResponseWriter, r *http.Request) {
 func (a *app) registerHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		a.renderTemplate(w, r, "register.tmpl", viewData{})
+		a.renderTemplate(w, r, "register.tmpl", viewData{Continue: continuePathFromRequest(r)})
 	case http.MethodPost:
 		if !a.validateCSRF(r) {
 			http.Error(w, "invalid CSRF token", http.StatusForbidden)
 			return
 		}
 
+		continuePath := continuePathFromRequest(r)
+
 		if err := r.ParseForm(); err != nil {
-			a.renderTemplate(w, r, "register.tmpl", viewData{Error: "invalid form payload"})
+			a.renderTemplate(w, r, "register.tmpl", viewData{Error: "invalid form payload", Continue: continuePath})
 			return
 		}
 
@@ -112,22 +124,22 @@ func (a *app) registerHandler(w http.ResponseWriter, r *http.Request) {
 		password := r.FormValue("password")
 
 		if name == "" || surname == "" || email == "" || len(password) < 8 {
-			a.renderTemplate(w, r, "register.tmpl", viewData{Error: "all fields are required and password must have at least 8 chars"})
+			a.renderTemplate(w, r, "register.tmpl", viewData{Error: "all fields are required and password must have at least 8 chars", Continue: continuePath})
 			return
 		}
 
 		hash, err := hashPassword(password)
 		if err != nil {
-			a.renderTemplate(w, r, "register.tmpl", viewData{Error: "could not process password"})
+			a.renderTemplate(w, r, "register.tmpl", viewData{Error: "could not process password", Continue: continuePath})
 			return
 		}
 
 		if _, err := a.store.createUser(name, surname, email, hash); err != nil {
-			a.renderTemplate(w, r, "register.tmpl", viewData{Error: err.Error()})
+			a.renderTemplate(w, r, "register.tmpl", viewData{Error: err.Error(), Continue: continuePath})
 			return
 		}
 
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Redirect(w, r, pathWithContinue("/login", continuePath), http.StatusSeeOther)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -136,15 +148,17 @@ func (a *app) registerHandler(w http.ResponseWriter, r *http.Request) {
 func (a *app) loginHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		a.renderTemplate(w, r, "login.tmpl", viewData{})
+		a.renderTemplate(w, r, "login.tmpl", viewData{Continue: continuePathFromRequest(r)})
 	case http.MethodPost:
 		if !a.validateCSRF(r) {
 			http.Error(w, "invalid CSRF token", http.StatusForbidden)
 			return
 		}
 
+		continuePath := continuePathFromRequest(r)
+
 		if err := r.ParseForm(); err != nil {
-			a.renderTemplate(w, r, "login.tmpl", viewData{Error: "invalid form payload"})
+			a.renderTemplate(w, r, "login.tmpl", viewData{Error: "invalid form payload", Continue: continuePath})
 			return
 		}
 
@@ -153,13 +167,13 @@ func (a *app) loginHandler(w http.ResponseWriter, r *http.Request) {
 
 		user, ok := a.store.getUserByEmail(email)
 		if !ok || !checkPassword(password, user.PasswordHash) {
-			a.renderTemplate(w, r, "login.tmpl", viewData{Error: "invalid credentials"})
+			a.renderTemplate(w, r, "login.tmpl", viewData{Error: "invalid credentials", Continue: continuePath})
 			return
 		}
 
 		session, err := a.store.createSession(user.ID, sessionKindWeb, webSessionTTL)
 		if err != nil {
-			a.renderTemplate(w, r, "login.tmpl", viewData{Error: "unable to create session"})
+			a.renderTemplate(w, r, "login.tmpl", viewData{Error: "unable to create session", Continue: continuePath})
 			return
 		}
 
@@ -173,7 +187,7 @@ func (a *app) loginHandler(w http.ResponseWriter, r *http.Request) {
 			Expires:  session.ExpiresAt,
 		})
 
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+		http.Redirect(w, r, defaultContinuePath(continuePath), http.StatusSeeOther)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -359,14 +373,26 @@ func (a *app) oauthRevokeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientID, clientSecret, ok := parseClientCredentials(r)
-	if !ok || !a.store.validateOAuthClient(clientID, clientSecret) {
+	token := strings.TrimSpace(r.FormValue("token"))
+	clientID := strings.TrimSpace(r.FormValue("client_id"))
+	bearer := bearerToken(r)
+
+	clientIDFromAuth, clientSecret, ok := parseClientCredentials(r)
+	switch {
+	case ok && a.store.validateOAuthClient(clientIDFromAuth, clientSecret):
+		// Confidential clients can revoke with standard client authentication.
+	case clientID != "":
+		client, found := a.store.getOAuthClient(clientID)
+		if !found || !client.IsPublic || bearer == "" || token == "" || bearer != token {
+			writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "client authentication failed")
+			return
+		}
+	default:
 		w.Header().Set("WWW-Authenticate", `Basic realm="oauth2"`)
 		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "client authentication failed")
 		return
 	}
 
-	token := strings.TrimSpace(r.FormValue("token"))
 	if token != "" {
 		a.store.deleteSession(token)
 	}
@@ -397,8 +423,8 @@ func (a *app) oauthUserInfoHandler(w http.ResponseWriter, r *http.Request) {
 		"sub":               user.ID,
 		"eduPersonUniqueId": user.ID,
 		"name":              strings.TrimSpace(user.FirstName + " " + user.LastName),
-		"given_name":        user.FirstName,
-		"family_name":       user.LastName,
+		"firstname":         user.FirstName,
+		"lastName":          user.LastName,
 		"email":             user.Email,
 		"email_verified":    true,
 	})
@@ -410,11 +436,70 @@ func (a *app) oauthJWKSHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"keys": []any{}})
+	writeJSON(w, http.StatusOK, a.oidc.jwks())
 }
 
 func (a *app) oauthAuthorizationHandler(w http.ResponseWriter, r *http.Request) {
-	writeOAuthError(w, http.StatusBadRequest, "unsupported_response_type", "authorization code flow is not enabled in this service")
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "invalid authorization request")
+		return
+	}
+
+	responseType := normalizeSpaceSeparated(r.FormValue("response_type"))
+	clientID := strings.TrimSpace(r.FormValue("client_id"))
+	redirectURI := strings.TrimSpace(r.FormValue("redirect_uri"))
+	scope := normalizeSpaceSeparated(r.FormValue("scope"))
+	state := strings.TrimSpace(r.FormValue("state"))
+	nonce := strings.TrimSpace(r.FormValue("nonce"))
+	prompt := strings.TrimSpace(r.FormValue("prompt"))
+
+	client, ok := a.store.getOAuthClient(clientID)
+	if !ok || !client.IsPublic {
+		writeOAuthError(w, http.StatusBadRequest, "unauthorized_client", "unknown public client")
+		return
+	}
+
+	if !containsString(client.RedirectURIs, redirectURI) {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "invalid redirect_uri")
+		return
+	}
+
+	if !containsString(client.AllowedResponseTypes, responseType) {
+		a.redirectAuthorizationError(w, r, redirectURI, state, "unsupported_response_type", "unsupported response_type")
+		return
+	}
+
+	requestedScopes := strings.Fields(scope)
+	if len(requestedScopes) == 0 || !containsString(requestedScopes, "openid") {
+		a.redirectAuthorizationError(w, r, redirectURI, state, "invalid_scope", "openid scope is required")
+		return
+	}
+	if !isSubsetOfStrings(requestedScopes, client.AllowedScopes) {
+		a.redirectAuthorizationError(w, r, redirectURI, state, "invalid_scope", "requested scope is not allowed")
+		return
+	}
+
+	if nonce == "" {
+		a.redirectAuthorizationError(w, r, redirectURI, state, "invalid_request", "nonce is required")
+		return
+	}
+
+	user, err := a.currentUserFromCookie(r)
+	if err != nil {
+		if prompt == "none" {
+			a.redirectAuthorizationError(w, r, redirectURI, state, "login_required", "user login is required")
+			return
+		}
+		http.Redirect(w, r, pathWithContinue("/login", r.URL.RequestURI()), http.StatusSeeOther)
+		return
+	}
+
+	a.issueImplicitGrant(w, r, user, client, redirectURI, scope, state, nonce)
 }
 
 func (a *app) oidcDiscoveryHandler(w http.ResponseWriter, r *http.Request) {
@@ -424,25 +509,85 @@ func (a *app) oidcDiscoveryHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	issuer := issuerURL(r)
-	origin := originURL(r)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"issuer":                                issuer,
-		"authorization_endpoint":                origin + "/oauth2-as/oauth2-authz",
+		"authorization_endpoint":                issuer + "/authorize",
 		"token_endpoint":                        issuer + "/token",
 		"userinfo_endpoint":                     issuer + "/userinfo",
 		"introspection_endpoint":                issuer + "/introspect",
 		"revocation_endpoint":                   issuer + "/revoke",
 		"jwks_uri":                              issuer + "/jwk",
-		"scopes_supported":                      []string{"openid", "profile", "email"},
-		"response_types_supported":              []string{"token"},
-		"response_modes_supported":              []string{"query", "fragment"},
-		"grant_types_supported":                 []string{"password", "refresh_token"},
+		"scopes_supported":                      []string{"openid", "profile", "email", "single-logout"},
+		"response_types_supported":              []string{"id_token token"},
+		"response_modes_supported":              []string{"fragment"},
+		"grant_types_supported":                 []string{"implicit", "password", "refresh_token"},
 		"code_challenge_methods_supported":      []string{"plain", "S256"},
 		"request_uri_parameter_supported":       false,
 		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
 		"subject_types_supported":               []string{"public"},
-		"id_token_signing_alg_values_supported": []string{"none"},
+		"id_token_signing_alg_values_supported": []string{"RS256"},
 	})
+}
+
+func (a *app) issueImplicitGrant(w http.ResponseWriter, r *http.Request, user userRecord, client oauthClientRecord, redirectURI, scope, state, nonce string) {
+	access, err := a.store.createSession(user.ID, sessionKindOAuthAccess, accessTokenTTL)
+	if err != nil {
+		a.redirectAuthorizationError(w, r, redirectURI, state, "server_error", "failed to create access token")
+		return
+	}
+
+	idToken, err := a.oidc.signIDToken(map[string]any{
+		"iss":            issuerURL(r),
+		"aud":            client.ClientID,
+		"sub":            user.ID,
+		"exp":            access.ExpiresAt.Unix(),
+		"iat":            time.Now().UTC().Unix(),
+		"nonce":          nonce,
+		"name":           strings.TrimSpace(user.FirstName + " " + user.LastName),
+		"firstname":      user.FirstName,
+		"lastName":       user.LastName,
+		"email":          user.Email,
+		"email_verified": true,
+	})
+	if err != nil {
+		a.store.deleteSession(access.Token)
+		a.redirectAuthorizationError(w, r, redirectURI, state, "server_error", "failed to create id_token")
+		return
+	}
+
+	fragment := url.Values{}
+	fragment.Set("access_token", access.Token)
+	fragment.Set("expires_in", strconv.Itoa(int(accessTokenTTL.Seconds())))
+	fragment.Set("id_token", idToken)
+	fragment.Set("scope", scope)
+	fragment.Set("token_type", "Bearer")
+	if state != "" {
+		fragment.Set("state", state)
+	}
+
+	a.redirectWithFragment(w, r, redirectURI, fragment)
+}
+
+func (a *app) redirectAuthorizationError(w http.ResponseWriter, r *http.Request, redirectURI, state, code, description string) {
+	fragment := url.Values{}
+	fragment.Set("error", code)
+	fragment.Set("error_description", description)
+	if state != "" {
+		fragment.Set("state", state)
+	}
+
+	a.redirectWithFragment(w, r, redirectURI, fragment)
+}
+
+func (a *app) redirectWithFragment(w http.ResponseWriter, r *http.Request, redirectURI string, fragment url.Values) {
+	target, err := url.Parse(redirectURI)
+	if err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "invalid redirect_uri")
+		return
+	}
+
+	target.Fragment = fragment.Encode()
+	http.Redirect(w, r, target.String(), http.StatusFound)
 }
 
 func (a *app) apiMeHandler(w http.ResponseWriter, r *http.Request) {
@@ -530,6 +675,25 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		allowedOrigin := corsAllowedOrigin()
+		if allowedOrigin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		}
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func parseClientCredentials(r *http.Request) (string, string, bool) {
 	auth := strings.TrimSpace(r.Header.Get("Authorization"))
 	if strings.HasPrefix(strings.ToLower(auth), "basic ") {
@@ -552,6 +716,67 @@ func parseClientCredentials(r *http.Request) (string, string, bool) {
 	}
 
 	return clientID, clientSecret, true
+}
+
+func continuePathFromRequest(r *http.Request) string {
+	if r.Method == http.MethodGet {
+		return safeContinuePath(r.URL.Query().Get("continue"))
+	}
+	return safeContinuePath(r.FormValue("continue"))
+}
+
+func safeContinuePath(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") {
+		return ""
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "" || parsed.Host != "" {
+		return ""
+	}
+
+	return parsed.RequestURI()
+}
+
+func pathWithContinue(path, continuePath string) string {
+	continuePath = safeContinuePath(continuePath)
+	if continuePath == "" {
+		return path
+	}
+
+	values := url.Values{}
+	values.Set("continue", continuePath)
+	return path + "?" + values.Encode()
+}
+
+func defaultContinuePath(path string) string {
+	if safePath := safeContinuePath(path); safePath != "" {
+		return safePath
+	}
+	return "/"
+}
+
+func normalizeSpaceSeparated(raw string) string {
+	return strings.Join(strings.Fields(raw), " ")
+}
+
+func containsString(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func isSubsetOfStrings(values, allowed []string) bool {
+	for _, value := range values {
+		if !containsString(allowed, value) {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *app) ensureCSRFCookie(w http.ResponseWriter, r *http.Request) string {
@@ -596,6 +821,10 @@ func secureCookiesEnabled(r *http.Request) bool {
 		return true
 	}
 	return r.TLS != nil
+}
+
+func corsAllowedOrigin() string {
+	return strings.TrimSpace(os.Getenv("APP_CORS_ALLOW_ORIGIN"))
 }
 
 func issuerURL(r *http.Request) string {
