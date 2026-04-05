@@ -549,6 +549,8 @@ func defaultBackofficeRedirectURIs() []string {
 		"http://localhost:34000/silent-token-refresh.html",
 		"http://localhost:4200/testpath/last-page-redirect",
 		"http://localhost:4200/testpath/silent-token-refresh.html",
+		"http://localhost:32000/last-page-redirect",
+		"http://localhost:32000/silent-token-refresh.html",
 	}
 }
 
