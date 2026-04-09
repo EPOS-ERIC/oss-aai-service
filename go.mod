@@ -1,8 +1,6 @@
 module oss-aaai
 
-go 1.26
-
-toolchain go1.26.1
+go 1.26.2
 
 require (
 	golang.org/x/crypto v0.49.0

@@ -21,3 +21,6 @@ tidy:
 
 clean:
 	rm -rf $(BIN_DIR)
+
+vuln:
+	govulncheck -C . -format text ./...
