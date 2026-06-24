@@ -20,7 +20,7 @@ const (
 	webSessionCookie = "session_token"
 	csrfCookie       = "csrf_token"
 	webSessionTTL    = 24 * time.Hour
-	accessTokenTTL   = 15 * time.Minute
+	accessTokenTTL   = 24 * time.Hour
 	refreshTokenTTL  = 24 * time.Hour
 )
 
