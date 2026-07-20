@@ -95,7 +95,7 @@
     <h1>Sign in</h1>
     <p class="intro">Use your account credentials to access the console and OAuth tools.</p>
     {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-    <form method="post" action="/login">
+    <form method="post" action="login">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
       <input type="hidden" name="continue" value="{{.Continue}}">
       <label>Email
@@ -106,7 +106,7 @@
       </label>
       <button type="submit">Login</button>
     </form>
-    <p class="foot">No account yet? <a href="/register{{if .Continue}}?continue={{urlquery .Continue}}{{end}}">Create one now</a></p>
+    <p class="foot">No account yet? <a href="register{{if .Continue}}?continue={{urlquery .Continue}}{{end}}">Create one now</a></p>
   </main>
 </body>
 </html>

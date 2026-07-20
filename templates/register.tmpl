@@ -95,7 +95,7 @@
     <h1>Create account</h1>
     <p class="intro">Register a user profile to access protected resources and token tools.</p>
     {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-    <form method="post" action="/register">
+    <form method="post" action="register">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
       <input type="hidden" name="continue" value="{{.Continue}}">
       <label>Name
@@ -112,7 +112,7 @@
       </label>
       <button type="submit">Register</button>
     </form>
-    <p class="foot">Already registered? <a href="/login{{if .Continue}}?continue={{urlquery .Continue}}{{end}}">Sign in</a></p>
+    <p class="foot">Already registered? <a href="login{{if .Continue}}?continue={{urlquery .Continue}}{{end}}">Sign in</a></p>
   </main>
 </body>
 </html>

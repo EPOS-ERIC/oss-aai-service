@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -126,8 +127,82 @@ func TestOAuthAuthorizationHandlerRedirectsToLoginWhenSessionMissing(t *testing.
 	if parsed.Path != "/login" {
 		t.Fatalf("unexpected login redirect path: %s", parsed.Path)
 	}
+	if got := parsed.Scheme + "://" + parsed.Host; got != "http://localhost:35000" {
+		t.Fatalf("unexpected login redirect origin: %s", got)
+	}
 	if got := parsed.Query().Get("continue"); got != req.URL.RequestURI() {
 		t.Fatalf("unexpected continue query: %q", got)
+	}
+}
+
+func TestOAuthAuthorizationHandlerRedirectsToPublicAAILogin(t *testing.T) {
+	t.Setenv("OIDC_ISSUER", "https://ics-c.epos-ip.org/test-opensource/aai/oauth2")
+	a := newTestApp(t)
+	req := httptest.NewRequest(http.MethodGet, authURL("http://aai-service:8080/oauth2/authorize", map[string]string{
+		"response_type": "id_token token",
+		"client_id":     "eposICS",
+		"redirect_uri":  "http://localhost:34000/last-page-redirect",
+		"scope":         "openid profile single-logout",
+		"state":         "state-123",
+		"nonce":         "nonce-123",
+	}), nil)
+	rr := httptest.NewRecorder()
+
+	a.oauthAuthorizationHandler(rr, req)
+
+	location, err := url.Parse(rr.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse redirect location: %v", err)
+	}
+	if got := location.Scheme + "://" + location.Host + location.Path; got != "https://ics-c.epos-ip.org/test-opensource/aai/login" {
+		t.Fatalf("unexpected login redirect: %s", location.String())
+	}
+	if got := location.Query().Get("continue"); got != req.URL.RequestURI() {
+		t.Fatalf("unexpected continue query: %q", got)
+	}
+}
+
+func TestLoginHandlerRedirectsToPublicAAIContinuePath(t *testing.T) {
+	t.Setenv("OIDC_ISSUER", "https://ics-c.epos-ip.org/test-opensource/aai/oauth2")
+	a := newTestApp(t)
+	form := url.Values{
+		"csrf_token": {"csrf-token"},
+		"email":      {"admin@admin.org"},
+		"password":   {"adminadmin"},
+		"continue":   {"/oauth2/authorize?client_id=eposICS"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "http://aai-service:8080/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookie, Value: "csrf-token"})
+	rr := httptest.NewRecorder()
+
+	a.loginHandler(rr, req)
+
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("unexpected status: got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Location"); got != "https://ics-c.epos-ip.org/test-opensource/aai/oauth2/authorize?client_id=eposICS" {
+		t.Fatalf("unexpected continue redirect: %s", got)
+	}
+}
+
+func TestTemplatesUseRelativeAAIPaths(t *testing.T) {
+	tests := map[string][]string{
+		"templates/login.tmpl":    {`action="login"`, `href="register`},
+		"templates/register.tmpl": {`action="register"`, `href="login`},
+		"templates/home.tmpl":     {`action="logout"`},
+	}
+
+	for path, expected := range tests {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		for _, value := range expected {
+			if !strings.Contains(string(content), value) {
+				t.Fatalf("%s missing %q", path, value)
+			}
+		}
 	}
 }
 

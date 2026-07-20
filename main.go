@@ -112,7 +112,7 @@ func (a *app) homeHandler(w http.ResponseWriter, r *http.Request) {
 
 	user, err := a.currentUserFromCookie(r)
 	if err != nil {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		redirectToAAI(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 
@@ -157,7 +157,7 @@ func (a *app) registerHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		http.Redirect(w, r, pathWithContinue("/login", continuePath), http.StatusSeeOther)
+		redirectToAAI(w, r, pathWithContinue("/login", continuePath), http.StatusSeeOther)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -205,7 +205,7 @@ func (a *app) loginHandler(w http.ResponseWriter, r *http.Request) {
 			Expires:  session.ExpiresAt,
 		})
 
-		http.Redirect(w, r, defaultContinuePath(continuePath), http.StatusSeeOther)
+		redirectToAAI(w, r, continuePath, http.StatusSeeOther)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -236,7 +236,7 @@ func (a *app) logoutHandler(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 	})
 
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
+	redirectToAAI(w, r, "/login", http.StatusSeeOther)
 }
 
 func (a *app) oauthTokenHandler(w http.ResponseWriter, r *http.Request) {
@@ -513,7 +513,7 @@ func (a *app) oauthAuthorizationHandler(w http.ResponseWriter, r *http.Request) 
 			a.redirectAuthorizationError(w, r, redirectURI, state, "login_required", "user login is required")
 			return
 		}
-		http.Redirect(w, r, pathWithContinue("/login", r.URL.RequestURI()), http.StatusSeeOther)
+		redirectToAAI(w, r, pathWithContinue("/login", r.URL.RequestURI()), http.StatusSeeOther)
 		return
 	}
 
@@ -773,6 +773,10 @@ func defaultContinuePath(path string) string {
 		return safePath
 	}
 	return "/"
+}
+
+func redirectToAAI(w http.ResponseWriter, r *http.Request, path string, status int) {
+	http.Redirect(w, r, originURL(r)+defaultContinuePath(path), status)
 }
 
 func normalizeSpaceSeparated(raw string) string {
