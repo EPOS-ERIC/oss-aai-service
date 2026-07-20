@@ -297,6 +297,71 @@ func TestNewLocalStoreSeedsInitialAdminUserFromEnvironment(t *testing.T) {
 	}
 }
 
+func TestBackofficeRedirectURIsUseConfiguredBaseURL(t *testing.T) {
+	t.Setenv("PLATFORM_URL", "https://ics-c.epos-ip.org/test-opensource")
+	t.Setenv("BACKOFFICE_URL", "https://ics-c.epos-ip.org/test-opensource/backoffice/")
+
+	redirectURIs, err := defaultOAuthRedirectURIs()
+	if err != nil {
+		t.Fatalf("build redirect URIs: %v", err)
+	}
+
+	if !containsString(redirectURIs, "https://ics-c.epos-ip.org/test-opensource/backoffice/last-page-redirect") {
+		t.Fatalf("configured login redirect URI missing: %v", redirectURIs)
+	}
+	if !containsString(redirectURIs, "https://ics-c.epos-ip.org/test-opensource/backoffice/silent-token-refresh.html") {
+		t.Fatalf("configured silent refresh URI missing: %v", redirectURIs)
+	}
+	if !containsString(redirectURIs, "https://ics-c.epos-ip.org/test-opensource/last-page-redirect") {
+		t.Fatalf("configured platform login redirect URI missing: %v", redirectURIs)
+	}
+	if !containsString(redirectURIs, "https://ics-c.epos-ip.org/test-opensource/silent-token-refresh.html") {
+		t.Fatalf("configured platform silent refresh URI missing: %v", redirectURIs)
+	}
+}
+
+func TestConfiguredRedirectURIsAreAddedToExistingOAuthClient(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "auth.db")
+	t.Setenv("PLATFORM_URL", "")
+	t.Setenv("BACKOFFICE_URL", "")
+
+	store, err := newLocalStore(dbPath)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if err := store.db.Close(); err != nil {
+		t.Fatalf("close initial store: %v", err)
+	}
+
+	t.Setenv("BACKOFFICE_URL", "https://ics-c.epos-ip.org/test-opensource/backoffice")
+	store, err = newLocalStore(dbPath)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.db.Close() })
+
+	client, ok := store.getOAuthClient("eposICS")
+	if !ok {
+		t.Fatal("seeded eposICS client not found")
+	}
+
+	if !containsString(client.RedirectURIs, "https://ics-c.epos-ip.org/test-opensource/backoffice/last-page-redirect") {
+		t.Fatalf("configured login redirect URI missing: %v", client.RedirectURIs)
+	}
+	if !containsString(client.RedirectURIs, "https://ics-c.epos-ip.org/test-opensource/backoffice/silent-token-refresh.html") {
+		t.Fatalf("configured silent refresh URI missing: %v", client.RedirectURIs)
+	}
+}
+
+func TestBackofficeRedirectURIsRejectInvalidConfiguredBaseURL(t *testing.T) {
+	t.Setenv("BACKOFFICE_URL", "https://example.org/backoffice?redirect=unsafe")
+
+	_, err := defaultOAuthRedirectURIs()
+	if err == nil {
+		t.Fatal("expected invalid BACKOFFICE_URL error")
+	}
+}
+
 func newTestApp(t *testing.T) *app {
 	t.Helper()
 

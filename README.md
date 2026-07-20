@@ -57,6 +57,8 @@ The initial admin user can be updated or deleted after first login and will not 
 - `APP_SECURE_COOKIES=true` - forces the `Secure` cookie flag (recommended behind HTTPS)
 - `APP_CORS_ALLOW_ORIGIN` - when set, adds the `Access-Control-Allow-Origin` header with the provided value and enables basic CORS preflight handling
 - `OIDC_ISSUER` - overrides issuer URL in OIDC discovery metadata
+- `PLATFORM_URL` - optional absolute HTTP(S) base URL for a deployed platform GUI; adds its login and silent-refresh callback URLs to public client `eposICS` on startup
+- `BACKOFFICE_URL` - optional absolute HTTP(S) base URL for a deployed backoffice (for example `https://example.org/test-opensource/backoffice`); adds its login and silent-refresh callback URLs to public client `eposICS` on startup
 
 If none of the `INITIAL_ADMIN_*` variables are set before the first startup, the service seeds the default `Admin Admin / admin@admin.org / adminadmin` account.
 

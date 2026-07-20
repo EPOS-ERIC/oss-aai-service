@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -354,10 +355,15 @@ func (s *localStore) seedOAuthClients() error {
 		return err
 	}
 
+	redirectURIs, err := defaultOAuthRedirectURIs()
+	if err != nil {
+		return err
+	}
+
 	if err := s.seedOAuthClient(oauthClientRecord{
 		ClientID:             "eposICS",
 		IsPublic:             true,
-		RedirectURIs:         defaultBackofficeRedirectURIs(),
+		RedirectURIs:         redirectURIs,
 		AllowedScopes:        []string{"openid", "profile", "email", "single-logout"},
 		AllowedResponseTypes: []string{"id_token token"},
 		CreatedAt:            time.Now().UTC(),
@@ -365,7 +371,7 @@ func (s *localStore) seedOAuthClients() error {
 		return err
 	}
 
-	return nil
+	return s.addOAuthClientRedirectURIs("eposICS", redirectURIs)
 }
 
 func (s *localStore) seedOAuthClient(client oauthClientRecord) error {
@@ -394,6 +400,45 @@ func (s *localStore) seedOAuthClient(client oauthClientRecord) error {
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`, client.ClientID, client.ClientSecretHash, boolToInt(client.IsPublic), redirectURIsJSON, scopesJSON, responseTypesJSON, client.CreatedAt.Unix())
+	return err
+}
+
+func (s *localStore) addOAuthClientRedirectURIs(clientID string, redirectURIs []string) error {
+	client, ok := s.getOAuthClient(clientID)
+	if !ok {
+		return fmt.Errorf("oauth client %q not found", clientID)
+	}
+
+	known := make(map[string]struct{}, len(client.RedirectURIs))
+	for _, redirectURI := range client.RedirectURIs {
+		known[redirectURI] = struct{}{}
+	}
+
+	updated := false
+	for _, redirectURI := range redirectURIs {
+		if _, ok := known[redirectURI]; ok {
+			continue
+		}
+
+		client.RedirectURIs = append(client.RedirectURIs, redirectURI)
+		known[redirectURI] = struct{}{}
+		updated = true
+	}
+
+	if !updated {
+		return nil
+	}
+
+	redirectURIsJSON, err := marshalStringList(client.RedirectURIs)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(
+		`UPDATE oauth_clients SET redirect_uris_json = ? WHERE client_id = ?`,
+		redirectURIsJSON,
+		clientID,
+	)
 	return err
 }
 
@@ -543,8 +588,8 @@ func newToken() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-func defaultBackofficeRedirectURIs() []string {
-	return []string{
+func defaultOAuthRedirectURIs() ([]string, error) {
+	redirectURIs := []string{
 		"http://localhost:34000/last-page-redirect",
 		"http://localhost:34000/silent-token-refresh.html",
 		"http://localhost:4200/testpath/last-page-redirect",
@@ -552,6 +597,44 @@ func defaultBackofficeRedirectURIs() []string {
 		"http://localhost:32000/last-page-redirect",
 		"http://localhost:32000/silent-token-refresh.html",
 	}
+
+	for _, envName := range []string{"PLATFORM_URL", "BACKOFFICE_URL"} {
+		baseURL := strings.TrimSpace(os.Getenv(envName))
+		if baseURL == "" {
+			continue
+		}
+
+		configuredRedirectURIs, err := redirectURIsForBaseURL(envName, baseURL)
+		if err != nil {
+			return nil, err
+		}
+		for _, redirectURI := range configuredRedirectURIs {
+			if !containsString(redirectURIs, redirectURI) {
+				redirectURIs = append(redirectURIs, redirectURI)
+			}
+		}
+	}
+
+	return redirectURIs, nil
+}
+
+func redirectURIsForBaseURL(envName, baseURL string) ([]string, error) {
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s: %w", envName, err)
+	}
+	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return nil, fmt.Errorf("invalid %s: must be an absolute http(s) URL", envName)
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return nil, fmt.Errorf("invalid %s: query and fragment are not allowed", envName)
+	}
+
+	baseURL = strings.TrimRight(baseURL, "/")
+	return []string{
+		baseURL + "/last-page-redirect",
+		baseURL + "/silent-token-refresh.html",
+	}, nil
 }
 
 func marshalStringList(values []string) (string, error) {
