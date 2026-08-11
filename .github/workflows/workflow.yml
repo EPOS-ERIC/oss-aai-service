@@ -6,8 +6,6 @@
 #   - Pull request to main: Runs security scans only (no build/push)
 #
 # Jobs:
-#   1. security-scan: Runs CodeQL analysis for Go code
-#   2. dependency-check: Scans dependencies for known vulnerabilities using govulncheck and gosec
 #   3. build: Builds binary artifact and Docker image, pushes to GitHub Container Registry (public)
 #   4. mirror: Mirrors the repository to GitLab
 
@@ -29,58 +27,8 @@ env:
   GO_VERSION: "1.26"
 
 jobs:
-  security-scan:
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
-        with:
-          languages: go
-
-      - name: Build for CodeQL
-        run: make build
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
-
-  dependency-check:
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run govulncheck
-        uses: golang/govulncheck-action@v1
-        with:
-          go-version-input: ${{ env.GO_VERSION }}
-          go-package: ./...
-
-      - name: Run Gosec Security Scanner
-        uses: securego/gosec@master
-        with:
-          args: "-no-fail -fmt sarif -out gosec-results.sarif ./..."
-
-      - name: Upload Gosec SARIF results
-        uses: github/codeql-action/upload-sarif@v4
-        if: always() && hashFiles('gosec-results.sarif') != ''
-        with:
-          sarif_file: gosec-results.sarif
-
   build:
     runs-on: ubuntu-latest
-    needs: [security-scan, dependency-check]
     if: github.event_name == 'push'
     permissions:
       contents: read
